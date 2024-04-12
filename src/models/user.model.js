@@ -48,11 +48,11 @@ const userSchema= new Schema(
     },{timestamps:true})
 
 
-    userSchema.pre("save", async function(next){
+    userSchema.pre("save", async function(next){   // pre middleware that run whenever something is saved
         if(!this.isModified("password")){      // isModified => built in method which accepts string as argument
             next()
         }
-        this.password= bcrypt.hash(this.password,10)   // saltrounds can be 8 or 10 or default
+        this.password= await bcrypt.hash(this.password,10)   // saltrounds can be 8 or 10 or default
         next()
     })
 
@@ -62,7 +62,7 @@ const userSchema= new Schema(
     }
 
 
-    userSchema.methods.genrateAcessToken= function(){
+    userSchema.methods.genrateAcessToken= function(){     // syntax from documentation of jwt
         jwt.sign(
             {
                 _id: this._id,
