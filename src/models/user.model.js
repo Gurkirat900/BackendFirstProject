@@ -58,12 +58,12 @@ const userSchema= new Schema(
 
 
     userSchema.methods.isPasswordCorrect= async function(password){   // custom method 
-      await  bcrypt.compare(password,this.password)     // compare compares original pass and encrypted pass
+      return await  bcrypt.compare(password,this.password)     // compare compares original pass and encrypted pass
     }
 
 
-    userSchema.methods.genrateAcessToken= function(){     // syntax from documentation of jwt
-        jwt.sign(
+    userSchema.methods.genrateAccessToken= function(){     // syntax from documentation of jwt
+       return jwt.sign(
             {
                 _id: this._id,
                 email: this.email,                       
@@ -77,7 +77,7 @@ const userSchema= new Schema(
     }
 
     userSchema.methods.genrateRefreshToken= function(){
-        jwt.sign(
+        return jwt.sign(
             {
                 _id: this._id,
                 email: this.email,
