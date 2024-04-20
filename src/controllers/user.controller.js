@@ -190,7 +190,7 @@ const loginUser= asyncHandler(async (req,res)=>{
 const logoutUser= asyncHandler(async (req,res)=>{
     // delete the refresh token stored within users db
     // clear cookie data
-    await User.findByIdAndUpdate(req.user._id,
+    await User.findByIdAndUpdate(req.user._id,    // req.user=> from jwt middleware during routing
         {
             $set:{refreshToken:undefined}
         })                                    // we needed users data thatswhy we used auth middleware and stored it in req.user
@@ -250,4 +250,110 @@ const refreshAccessToken= asyncHandler(async (req,res)=>{
     )
 })
 
-export {registerUser,loginUser,logoutUser,refreshAccessToken} 
+
+
+const changePassword= asyncHandler( async(req,res)=>{
+    const {oldPassword,newPassword}= req.body
+
+    const user= await User.findById(req.user._id)    // if user is changing password it means he is logged in(by checking through auth middleware)
+
+    if(!await isPasswordCorrect(oldPassword)){
+        console.log("Password is not correct")
+        throw new ApiError(400, "Password is not correct")
+    }
+
+    user.password= newPassword;
+    await user.save({validateBeforeSave: false})
+
+    return res.status(200).json(
+        new ApiResponse(200,{},"Password changed successfully")
+    )
+})
+
+
+
+const getCurrentuser= asyncHandler(async (req,res)=>{
+    return res.status(200).json(
+        new ApiResponse(200,req.user,"User fetched successfully")
+    )
+})
+
+
+
+const updateAccountDetails= asyncHandler(async (req,res)=>{
+    const {fullname,email}= req.body
+
+    try {
+        if(!fullname || !email){
+            console.log("All fields are required")
+            throw new ApiError(400,"All fields are required")
+        }
+    
+        const user= await User.findByIdAndUpdate(req.user._id,
+        {
+            $set: {fullname,email}
+        },
+        {new:true}).select('username fullname email avatar coverImage');
+    
+      return res.status(200).json(
+            new ApiResponse(200,user,"Acccount details updated succesfully")
+        )
+    } catch (error) {
+        console.log(error);
+    }
+})
+
+
+
+const updateAvatar= asyncHandler(async (req,res)=>{
+   const avatarLocalFilePath= req.file?.path      // this comes from multer middleware
+   
+   if(!avatarLocalFilePath){
+    console.log("Avatar image is required")
+    throw new ApiError(400,"Avatar image is required")
+}
+
+   const avatar= await uploadOnCloudinary(avatarLocalFilePath)
+
+   if(!avatar.url){
+    console.log("Error while uploading the avatar file on cloudinary");
+    throw new ApiError(500,"Error while uploading the avatar file on cloudinary")
+   }
+
+    const user= await User.findByIdAndUpdate(req.user._id,
+        {
+            $set: {avatar:avatar.url}
+        },{new:true}).select("username fullname email avatar coverImage")
+
+        return res.status(200).json(
+            new ApiResponse(200,user,"Avatar image updated succesfully"))
+})
+
+
+
+const updateCovetImage= asyncHandler(async (req,res)=>{
+    const coverImageLocalFilePath= req.file?.path      // this comes from multer middleware
+    
+    if(!coverImageLocalFilePath){
+     console.log("CoverImage is required")
+     throw new ApiError(400,"CoverImage image is required")
+ }
+ 
+    const coverImage= await uploadOnCloudinary(avatarLocalFilePath)
+ 
+    if(!coverImage.url){
+     console.log("Error while uploading the avatar file on cloudinary");
+     throw new ApiError(500,"Error while uploading the avatar file on cloudinary")
+    }
+ 
+     const user= await User.findByIdAndUpdate(req.user._id,
+         {
+             $set: {coverImage:coverImage.url}
+         },{new:true}).select("username fullname email avatar coverImage")
+ 
+         return res.status(200).json(
+             new ApiResponse(200,user,"coverImage updated succesfully"))
+ })
+ 
+
+export {registerUser,loginUser,logoutUser,refreshAccessToken,changePassword,getCurrentuser,updateAccountDetails,updateAvatar,updateCovetImage} 
