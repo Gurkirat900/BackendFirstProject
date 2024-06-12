@@ -339,7 +339,7 @@ const updateCovetImage= asyncHandler(async (req,res)=>{
      throw new ApiError(400,"CoverImage image is required")
  }
  
-    const coverImage= await uploadOnCloudinary(avatarLocalFilePath)
+    const coverImage= await uploadOnCloudinary(coverImageLocalFilePath)
  
     if(!coverImage.url){
      console.log("Error while uploading the avatar file on cloudinary");
@@ -353,7 +353,147 @@ const updateCovetImage= asyncHandler(async (req,res)=>{
  
          return res.status(200).json(
              new ApiResponse(200,user,"coverImage updated succesfully"))
- })
+            
+})
+
+
+
+const getUserChannelProfile= asyncHandler(async (req,res)=>{
+
+    // here username is of the person on which our operating user i.e- req.user(logged in) has clicked
+    const {username}= req.params?.trim()           
+
+    if(!username){
+        console.log("Username not found");
+        throw new ApiError(400,"Username not found")
+    }
+
+    const channel= await User.aggregate([     // channel is the info(decided by $project) of clicked user=> in the form of array
+        {
+            $match:{
+                username: username?.toLowerCase()     // take out all documents which has given username
+            }
+        },
+        {
+            $lookup:{                     // collection of documents(users=> showing channels and subscribers as it is based on subscription schema) that are subscribers of the user 
+                from: "subscriptions",
+                localField: "_id",      // _id is of username from params
+                foreignField: "channel",
+                as: "subscribers"
+            }
+        },
+        {
+            $lookup:{                     // collection of documents(users=> showing channels and subscribers as it is based on subscription schema) that our username has subscribed to 
+                from: "subscriptions",
+                localField: "_id",         // _id is of username from params
+                foreignField: "subscriber",
+                as: "subscribedTo"
+            }
+        },
+        {
+            $addFields: {                 // adds these two fields to User schema/model
+                subscribersCount:{
+                    $size: "$subscribers"
+                },
+                channelSubscribedToCount: {
+                    $size: "subscribedTo"
+                },
+                isSubscribed: {    // check if the user(req.user) who has clicked on the profile(req.params) is subscriber of that profile
+                    $cond:{
+                        if: {$in: [req.user?._id, "$subscribers.subscriber"]},  
+                        then: true,
+                        else: false
+                    }
+                }
+            }
+        },{
+            $project:{      // _id is projected by default
+                username:1,
+                fullname:1,
+                subscribersCount:1,
+                channelSubscribedToCount:1,
+                isSubscribed:1,
+                avatar:1,
+                coverImage:1
+            }
+        }])
+
+
+        // aggregation pipeline returns array
+        // here channel will return array of objects(in this case single object)=> [{id,fullname,username.......}]
+
+        if(!channel?.length){
+            console.log("Channel does not exist")
+            throw new ApiError(400,"Channel does not exist")
+        }
+
+
+        return res.status(200).json(
+            new ApiResponse(200,channel[0],"Info of channel retrieved succesfully")
+        )
+})
+
+
+
+const getWatchHistory= asyncHandler(async (req,res)=>{
+    const user= await User.aggregate([
+        {
+            $match: {      // req.user._id=> is a string(converted by moongose behind the scenes) but we need actual mongoDb id
+                _id: new mongoose.Types.ObjectId(req.user._id)   
+            }
+        },
+        {
+            $lookup: {
+                from: "videos",
+                localField: "watchHistory",
+                foreignField: "_id",
+                as: "watchHistory",
+                pipeline:[
+                    {
+                        $lookup: {
+                            from: "users",
+                            localField: "owner",
+                            foreignField: "_id",
+                            as: "owner",         // return => [{username,fullname,avatar}]
+                            pipeline: [
+                                {
+                                    $project: {
+                                        username: 1,
+                                        fullname: 1,
+                                        avatar: 1
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                {
+                    $addFields: {       // we can skip this step but then an array will be stored at owner 
+                        owner: {
+                            $first: "$owner"     // add {username,fullname,avatar} in videos model/schema
+                        }
+                    }
+                }]
+            }
+        }])
+
+        return res.status(200).json(
+            new ApiResponse(200,user[0].watchHistory,"Watch history fetched succesfully")
+        )
+})
+
+
+
  
 
-export {registerUser,loginUser,logoutUser,refreshAccessToken,changePassword,getCurrentuser,updateAccountDetails,updateAvatar,updateCovetImage} 
+export {
+    registerUser,
+    loginUser,
+    logoutUser,
+    refreshAccessToken,
+    changePassword,
+    getCurrentuser,
+    updateAccountDetails
+    ,updateAvatar,
+    updateCovetImage,
+    getUserChannelProfile,
+    getWatchHistory} 
