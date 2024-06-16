@@ -2,7 +2,7 @@ import { User } from "../models/user.model.js";
 import { ApiError } from "../utils/ApiError.js";
 import { ApiResponse } from "../utils/ApiResponse.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
-import { uploadOnCloudinary } from "../utils/cloudinary.js";
+import { deleteFromCloudinary, uploadOnCloudinary } from "../utils/cloudinary.js";
 import jwt from "jsonwebtoken";
 
 const registerUser= asyncHandler( async (req,res)=>{
@@ -257,7 +257,7 @@ const changePassword= asyncHandler( async(req,res)=>{
 
     const user= await User.findById(req.user._id)    // if user is changing password it means he is logged in(by checking through auth middleware)
 
-    if(!await isPasswordCorrect(oldPassword)){
+    if(!await user.isPasswordCorrect(oldPassword)){
         console.log("Password is not correct")
         throw new ApiError(400, "Password is not correct")
     }
@@ -313,6 +313,9 @@ const updateAvatar= asyncHandler(async (req,res)=>{
     throw new ApiError(400,"Avatar image is required")
 }
 
+   const oldAvatar= await User.findById(req.user._id).select("avatar")
+   deleteFromCloudinary(oldAvatar)
+
    const avatar= await uploadOnCloudinary(avatarLocalFilePath)
 
    if(!avatar.url){
@@ -338,6 +341,9 @@ const updateCovetImage= asyncHandler(async (req,res)=>{
      console.log("CoverImage is required")
      throw new ApiError(400,"CoverImage image is required")
  }
+
+     const oldCoverImage= await User.findById(req.user._id).select("avatar")
+     deleteFromCloudinary(oldCoverImage)
  
     const coverImage= await uploadOnCloudinary(coverImageLocalFilePath)
  
@@ -361,63 +367,73 @@ const updateCovetImage= asyncHandler(async (req,res)=>{
 const getUserChannelProfile= asyncHandler(async (req,res)=>{
 
     // here username is of the person on which our operating user i.e- req.user(logged in) has clicked
-    const {username}= req.params?.trim()           
-
-    if(!username){
+    const {username}= req.params   
+ 
+    if(!username?.trim()){
         console.log("Username not found");
         throw new ApiError(400,"Username not found")
     }
 
-    const channel= await User.aggregate([     // channel is the info(decided by $project) of clicked user=> in the form of array
-        {
-            $match:{
-                username: username?.toLowerCase()     // take out all documents which has given username
-            }
-        },
-        {
-            $lookup:{                     // collection of documents(users=> showing channels and subscribers as it is based on subscription schema) that are subscribers of the user 
-                from: "subscriptions",
-                localField: "_id",      // _id is of username from params
-                foreignField: "channel",
-                as: "subscribers"
-            }
-        },
-        {
-            $lookup:{                     // collection of documents(users=> showing channels and subscribers as it is based on subscription schema) that our username has subscribed to 
-                from: "subscriptions",
-                localField: "_id",         // _id is of username from params
-                foreignField: "subscriber",
-                as: "subscribedTo"
-            }
-        },
-        {
-            $addFields: {                 // adds these two fields to User schema/model
-                subscribersCount:{
-                    $size: "$subscribers"
-                },
-                channelSubscribedToCount: {
-                    $size: "subscribedTo"
-                },
-                isSubscribed: {    // check if the user(req.user) who has clicked on the profile(req.params) is subscriber of that profile
-                    $cond:{
-                        if: {$in: [req.user?._id, "$subscribers.subscriber"]},  
-                        then: true,
-                        else: false
-                    }
+    const matchStage = {
+        $match: {
+            username: username?.toLowerCase()     // take out all documents which has given username
+        }
+    };
+    
+    
+    const lookupSubscribersStage = {
+        $lookup: {                       // collection of documents(users=> showing channels and subscribers as it is based on subscription schema) that are subscribers of the user 
+            from: "subscriptions",
+            localField: "_id",           // _id is of user from params
+            foreignField: "channel",   
+            as: "subscribers"
+        }
+    };
+    
+    
+    const lookupSubscribedToStage = {
+        $lookup: {                        // collection of documents(users=> showing channels and subscribers as it is based on subscription schema) that our username has subscribed to 
+            from: "subscriptions",
+            localField: "_id",         
+            foreignField: "subscriber",
+            as: "subscribedTo"
+        }
+    };
+
+    
+    const addFieldsStage = {          // adds these three fields to User schema/model
+        $addFields: {                 
+            subscribersCount: {
+                $size: "$subscribers"
+            },
+            channelSubscribedToCount: {
+                $size: "$subscribedTo"
+            },
+            isSubscribed: {                      // check if the user(req.user) who has clicked on the profile(req.params) is subscriber of that profile
+                $cond: {
+                    if: { $in: [req.user?._id, "$subscribers.subscriber"] },
+                    then: true,
+                    else: false
                 }
             }
-        },{
-            $project:{      // _id is projected by default
-                username:1,
-                fullname:1,
-                subscribersCount:1,
-                channelSubscribedToCount:1,
-                isSubscribed:1,
-                avatar:1,
-                coverImage:1
-            }
-        }])
-
+        }
+    };
+    
+    const projectStage = {
+        $project: {           // _id is projected by default
+            username: 1,
+            fullname: 1,
+            subscribersCount: 1,
+            channelSubscribedToCount: 1,
+            isSubscribed: 1,
+            avatar: 1,
+            coverImage: 1
+        }
+    };
+    
+    
+    const channel = await User.aggregate([matchStage, lookupSubscribersStage, lookupSubscribedToStage, addFieldsStage, projectStage]);
+    
 
         // aggregation pipeline returns array
         // here channel will return array of objects(in this case single object)=> [{id,fullname,username.......}]
@@ -436,46 +452,51 @@ const getUserChannelProfile= asyncHandler(async (req,res)=>{
 
 
 const getWatchHistory= asyncHandler(async (req,res)=>{
-    const user= await User.aggregate([
+   
+   
+    const user = await User.aggregate([
         {
-            $match: {      // req.user._id=> is a string(converted by moongose behind the scenes) but we need actual mongoDb id
-                _id: new mongoose.Types.ObjectId(req.user._id)   
+            $match: {
+                _id: req.user._id
             }
         },
         {
             $lookup: {
-                from: "videos",
+                from: "videos", 
                 localField: "watchHistory",
                 foreignField: "_id",
                 as: "watchHistory",
-                pipeline:[
+                pipeline: [
                     {
                         $lookup: {
                             from: "users",
                             localField: "owner",
                             foreignField: "_id",
-                            as: "owner",         // return => [{username,fullname,avatar}]
+                            as: "owner",
                             pipeline: [
                                 {
                                     $project: {
+                                        fullName: 1,
                                         username: 1,
-                                        fullname: 1,
                                         avatar: 1
                                     }
                                 }
                             ]
                         }
                     },
-                {
-                    $addFields: {       // we can skip this step but then an array will be stored at owner 
-                        owner: {
-                            $first: "$owner"     // add {username,fullname,avatar} in videos model/schema
+                    {
+                        $addFields:{
+                            owner:{
+                                $first: "$owner"
+                            }
                         }
                     }
-                }]
+                ]
             }
-        }])
+        }
+    ])
 
+      
         return res.status(200).json(
             new ApiResponse(200,user[0].watchHistory,"Watch history fetched succesfully")
         )
