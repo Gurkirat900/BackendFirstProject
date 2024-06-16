@@ -22,5 +22,17 @@ const uploadOnCloudinary= async (localFilePath)=>{
     }
 }
 
+const deleteFromCloudinary= async (publicString)=>{
+    if(!publicString){
+        console.log("image string not found")
+    }
+    
+   try {
+     cloudinary.uploader.destroy(publicString)
+   } catch (error) {
+      console.log("old image couldnt be deleted",error)
+   }
+}
 
-  export {uploadOnCloudinary}
+
+  export {uploadOnCloudinary,deleteFromCloudinary}
